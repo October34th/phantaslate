@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "Phantaslate",
+  "short_name": "Phantaslate",
+  "version": "0.1.0",
+  "description": "Translate Without a Trail. Privacy-first translation for 9 languages, with native CJKV support.",
+
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "storage"
+  ],
+
+  "host_permissions": [
+    "https://api.phantaslate.com/*"
+  ],
+
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}
