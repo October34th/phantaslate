@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Phantaslate</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- Header -->
+    <header class="header">
+      <div class="brand">
+        <img src="../icons/icon-48.png" alt="" class="brand__logo" width="22" height="22" />
+        <span class="brand__name">Phanta<span class="brand__accent">slate</span></span>
+      </div>
+      <div class="header__right">
+        <span class="brand__privacy" title="No logs are kept. Ever.">
+          <span class="dot"></span> No trail
+        </span>
+        <button id="settingsToggle" class="iconbtn" type="button"
+                aria-label="Relay settings" aria-expanded="false" title="Relay settings">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+               stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Settings (collapsed by default) -->
+    <div id="settings" class="settings" hidden>
+      <label class="settings__label" for="relayUrl">Relay endpoint</label>
+      <div class="settings__row">
+        <input id="relayUrl" class="settings__input" type="url" spellcheck="false"
+               placeholder="http://localhost:8000" />
+        <button id="testRelay" class="btn-ghost" type="button">Test</button>
+      </div>
+      <p class="settings__hint">
+        Point this at your own relay to keep translations entirely under your control.
+      </p>
+      <label class="settings__check">
+        <input id="clearOnClose" type="checkbox" checked />
+        <span>Clear text when the panel closes</span>
+      </label>
+      <label class="settings__check">
+        <input id="rememberLangs" type="checkbox" />
+        <span>Remember last used languages</span>
+      </label>
+    </div>
+
+    <!-- Language selector bar -->
+    <div class="langbar">
+      <label class="lang">
+        <span class="lang__label">From<span id="detectedLang" class="lang__detected" hidden></span></span>
+        <select id="sourceLang" class="lang__select" aria-label="Source language"></select>
+      </label>
+
+      <button id="swap" class="swap" type="button" aria-label="Swap languages" title="Swap languages">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M7 4 3 8l4 4" /><path d="M3 8h14" />
+          <path d="m17 20 4-4-4-4" /><path d="M21 16H7" />
+        </svg>
+      </button>
+
+      <label class="lang">
+        <span class="lang__label">To</span>
+        <select id="targetLang" class="lang__select" aria-label="Target language"></select>
+      </label>
+    </div>
+
+    <!-- Language mismatch warning -->
+    <div id="mismatch" class="notice" hidden>
+      <svg class="notice__icon" viewBox="0 0 24 24" width="15" height="15" fill="none"
+           stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+        <path d="M12 8v5" /><path d="M12 16.5v.01" />
+        <path d="M10.3 3.9 2.4 17.6A1.9 1.9 0 0 0 4 20.5h16a1.9 1.9 0 0 0 1.6-2.9L13.7 3.9a1.9 1.9 0 0 0-3.4 0z" />
+      </svg>
+      <span id="mismatchText" class="notice__text"></span>
+      <button id="mismatchUndo" class="notice__undo" type="button" hidden>Undo</button>
+      <button id="mismatchClose" class="notice__close" type="button" aria-label="Dismiss">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
+             stroke-width="2.6" stroke-linecap="round" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- Input -->
+    <div class="field">
+      <textarea id="input" class="field__area" rows="4"
+        placeholder="Type or paste text to translate…" maxlength="5000"></textarea>
+      <div class="field__meta">
+        <span id="charCount" class="counter">0 / 5000</span>
+      </div>
+    </div>
+
+    <!-- Action -->
+    <button id="translate" class="btn-translate" type="button" disabled>
+      Translate
+    </button>
+
+    <!-- Result -->
+    <div id="resultWrap" class="result is-empty">
+      <div class="result__head">
+        <span class="result__label">Translation</span>
+        <span class="result__actions">
+          <button id="clear" class="copy" type="button" aria-label="Clear text">Clear</button>
+          <button id="copy" class="copy" type="button" disabled aria-label="Copy translation">Copy</button>
+        </span>
+      </div>
+      <div id="output" class="result__body" aria-live="polite">
+        Your translation will appear here.
+      </div>
+    </div>
+
+    <!-- Footer / status -->
+    <footer class="footer">
+      <span id="status" class="status">
+        <span class="status__dot status__dot--idle"></span>
+        <span id="statusText">Checking…</span>
+        <span id="statusModel" class="status__model" hidden></span>
+      </span>
+      <a class="footer__link" href="https://github.com/October34th/phantaslate" target="_blank" rel="noopener">Open source</a>
+    </footer>
+
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
