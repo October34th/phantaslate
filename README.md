@@ -92,7 +92,7 @@ Auto-detect, plus nine target languages:
 |---|---|
 | `en` | 🇺🇸 English |
 | `zh-Hans` | 🇨🇳 Chinese (Simplified) |
-| `zh-Hant` | 🇹🇼 Chinese (Traditional) |
+| `zh-Hant` | 🇭🇰 Chinese (Traditional) |
 | `ja` | 🇯🇵 Japanese |
 | `ko` | 🇰🇷 Korean |
 | `vi` | 🇻🇳 Vietnamese |
