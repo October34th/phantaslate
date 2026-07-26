@@ -1,136 +1,321 @@
-# Phantaslate
+<p align="center">
+  <img src="assets/phantaslate-logo.png" alt="Phantaslate — Translate Without a Trail" width="480">
+</p>
 
-**Translate Without a Trail.**
+<h1 align="center">Phantaslate</h1>
 
-> Translation should serve you, not study you.
+<p align="center"><strong>Translate Without a Trail.</strong></p>
 
-Phantaslate is an open-source, privacy-first translation tool. Your words are yours — we keep no logs, we publish everything we do, and we let you verify it.
+<p align="center"><em>Your words should serve you. Not study you.</em></p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/license-AGPL--3.0-0D2045" alt="License AGPL-3.0">
+  <img src="https://img.shields.io/badge/version-0.5.2-03B4A5" alt="Version 0.5.2">
+  <img src="https://img.shields.io/badge/status-in%20development-C98A12" alt="Status: in development">
+  <img src="https://img.shields.io/badge/manifest-V3-0D2045" alt="Manifest V3">
+  <img src="https://img.shields.io/badge/free-forever-03B4A5" alt="Free forever">
+</p>
+
+---
+
+Phantaslate is an open-source, privacy-first translation tool. Your words are
+yours — we keep no logs, we publish everything we do, and we let you verify it.
+
+The extension is **free forever**. No paid tier, no upsell.
+
+---
+
+## ⚠️ Current status
+
+**In active development. Not yet published to the Chrome Web Store.**
+
+The extension works end to end today, but it requires you to run the relay
+yourself (see [Running it locally](#-running-it-locally)). A hosted relay so
+that anyone can install and go is the next milestone.
+
+| Component | State |
+|---|---|
+| Browser extension (Chrome / Chromium, Manifest V3) | ✅ Working |
+| Stateless relay (FastAPI, self-hostable) | ✅ Working |
+| End-to-end translation | ✅ Working |
+| Draggable in-page panel | ✅ Working |
+| Auto-detect + wrong-source-language warning | ✅ Working |
+| Hosted relay (no setup required) | 🚧 Next |
+| Multiple model providers | 📋 Planned |
+| Bring your own API key | 📋 Planned |
+| Firefox support | 📋 Planned |
+| Desktop & mobile apps | 📋 Planned |
 
 ---
 
 ## Why Phantaslate?
 
-| Problem | Phantaslate's Answer |
+| Problem | Phantaslate's answer |
 |---|---|
-| Google Translate feels like surveillance | Stateless relay — nothing is stored |
-| DeepL is unstable or blocked in many regions | Region-aware model routing |
-| ImmersiveTranslate had a data breach | Open-source relay, auditable by anyone |
-| CJKV translations route awkwardly through English | Native CJKV model support — no English pivot |
+| Mainstream translation is tied to advertising and profiling businesses | Stateless relay — nothing is written to disk |
+| Some services are unreliable or unavailable in certain regions | Self-hostable relay; provider choice planned |
+| Translation tools have leaked user text through insecure convenience features | No stored artifacts to leak — there is nothing to expose |
+| CJKV translation often pivots awkwardly through English | Models chosen for direct CJKV quality — no English pivot |
+
+> On the third point: in August 2025 a widely used translation extension
+> exposed large volumes of user content — reportedly including personal
+> details and credentials — because a page-snapshot feature uploaded data to
+> publicly readable cloud storage with no access control. It was a design
+> flaw, not an intrusion. That distinction is the entire argument for building
+> a tool that keeps nothing in the first place.
 
 ---
 
 ## Features
 
-- 🔒 **Privacy by design** — stateless relay, zero translation logs
-- 🌏 **CJKV-native** — Chinese, Japanese, Korean, Vietnamese translated without routing through English
-- 🌍 **9 languages** — focused and done well, not 100 languages done poorly
-- 🔍 **Fully auditable** — every line of code is open, from extension to relay
-- ⚖️ **Region-aware backends** — Qwen/DeepSeek for Asia · Mistral for Europe · Llama for the US
-- 🧩 **Browser extension first** — Chrome, Chromium, and Firefox
-- 🖥️ **Desktop & mobile apps coming in V2**
+- 🔒 **Private by architecture** — the relay holds no database and writes no
+  translation logs
+- 🌏 **CJKV-first** — Chinese (both scripts), Japanese, Korean and Vietnamese
+  treated as first-class, not afterthoughts
+- 🎯 **9 languages** — focused and done well, rather than a hundred done poorly
+- 🔍 **Fully auditable** — every line is open, extension and relay alike
+- 🖱️ **Draggable in-page panel** — stays open while you work, remembers its
+  position and size
+- 🧠 **Wrong-language detection** — if your text isn't the language you
+  selected, it tells you and offers to fix it
+- 🏠 **Self-hostable** — run the whole relay yourself; your text never touches
+  anyone else's server
+- 🆓 **Free forever** — the extension has no paid tier
 
 ---
 
-## Supported Languages (V1)
+## Supported languages
+
+Auto-detect, plus nine target languages:
 
 | Code | Language |
 |---|---|
-| `en` | 🇺🇸 English (American) |
+| `en` | 🇺🇸 English |
 | `zh-Hans` | 🇨🇳 Chinese (Simplified) |
 | `zh-Hant` | 🇹🇼 Chinese (Traditional) |
 | `ja` | 🇯🇵 Japanese |
 | `ko` | 🇰🇷 Korean |
 | `vi` | 🇻🇳 Vietnamese |
+| `es` | 🇪🇸 Spanish |
 | `fr` | 🇫🇷 French |
 | `de` | 🇩🇪 German |
-| `ru` | 🇷🇺 Russian |
-| `es` | 🇪🇸 Spanish |
 
-Arabic (`ar`) is planned for V1.1.
+Up to 5,000 characters per translation. Russian and Arabic (with RTL
+rendering) are candidates for a later release.
 
 ---
 
 ## Architecture
 
 ```
-User text
+Your text
     │
     ▼
-Browser Extension  (lightweight UI shell, ~500KB)
-    │
+Browser extension          in-page panel, ~80 KB
+    │                      nothing persisted but your settings
     ▼
-Phantaslate Relay  (open source, stateless, self-hostable)
-    │
-    ├── Qwen / DeepSeek  ← default · Asia-Pacific users
-    ├── Mistral          ← EU users · GDPR-native
-    └── Meta Llama       ← US users · open weights
-    │
+Phantaslate relay          open source · stateless · self-hostable
+    │                      no database · no content logging
     ▼
-Translation returned → Extension renders → Nothing stored
+Model API                  DeepSeek (deepseek-v4-flash) today
+    │                      provider choice + your own key planned
+    ▼
+Translation returned  →  rendered locally  →  nothing kept
 ```
 
-**The relay is stateless by design.** It receives text, calls the model API, returns the result, and writes nothing to disk. Even if the server were compromised, there is nothing to leak.
+**The relay is stateless by design.** It receives text, calls the model API,
+returns the result, and writes nothing to disk. The container even runs with
+access logging disabled, so request paths stay out of the logs too. If the
+server were compromised, there would be nothing stored to take.
+
+---
+
+## 🚀 Running it locally
+
+Two parts: start the relay, then load the extension.
+
+### 1. The relay
+
+Requires Python 3.10+ and a [DeepSeek API key](https://platform.deepseek.com).
+
+```bash
+cd relay
+python -m venv .venv
+
+# Windows
+.venv\Scripts\activate
+# macOS / Linux
+source .venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+Set your key, then start it:
+
+```bash
+# Windows (PowerShell)
+$env:DEEPSEEK_API_KEY="sk-..."
+# macOS / Linux
+export DEEPSEEK_API_KEY="sk-..."
+
+uvicorn main:app --reload --port 8000
+```
+
+Confirm it's alive at <http://localhost:8000/health>.
+
+Or with Docker:
+
+```bash
+cd relay
+docker build -t phantaslate-relay .
+docker run -p 8000:8000 -e DEEPSEEK_API_KEY="sk-..." phantaslate-relay
+```
+
+### 2. The extension
+
+1. Open `chrome://extensions`
+2. Enable **Developer mode** (top right)
+3. Click **Load unpacked** and select the `extension` folder
+4. Open any website and click the Phantaslate toolbar icon
+
+The panel opens inside the page. Drag it by its title bar, resize it from the
+corner, and close it with ✕. The gear icon lets you point the extension at a
+different relay.
+
+### Tests
+
+```bash
+cd relay
+pip install pytest
+pytest -q
+```
+
+The suite runs offline — no API key and no network needed.
+
+---
+
+## Configuration
+
+Relay environment variables:
+
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `DEEPSEEK_API_KEY` | yes | — | API key (never commit it) |
+| `PHANTASLATE_MODEL` | no | `deepseek-v4-flash` | Model name |
+| `DEEPSEEK_BASE_URL` | no | `https://api.deepseek.com` | API base URL |
+| `PHANTASLATE_ORIGINS` | no | `*` | Allowed CORS origins |
+
+---
+
+## API
+
+### `POST /translate`
+
+```json
+{ "text": "Bonjour le monde", "source_lang": "auto", "target_lang": "en" }
+```
+
+```json
+{
+  "translation": "Hello world",
+  "detected_lang": "French",
+  "detected_code": "fr",
+  "source_mismatch": false
+}
+```
+
+`source_mismatch` is `true` when the text isn't written in the language you
+said it was — the extension surfaces this as a warning and offers to correct
+the setting.
+
+### `GET /health`
+
+Returns status and active model. Reveals no request content.
 
 ---
 
 ## Roadmap
 
-| Version | Scope | Status |
+| Milestone | Scope | Status |
 |---|---|---|
-| **V1** | Browser Extension (Chrome, Chromium, Firefox) | 🚧 In development |
-| **V2** | Desktop app (Windows, macOS) + Mobile (iOS, Android) | 📋 Planned |
-| **V1.1** | Arabic language support + RTL rendering | 📋 Planned |
+| Extension shell | Manifest V3 popup and panel UI | ✅ Done |
+| Stateless relay | FastAPI, self-hostable, Dockerised | ✅ Done |
+| End-to-end translation | Extension ↔ relay integration | ✅ Done |
+| Hosted relay | Deployed default so no setup is needed | 🚧 Next |
+| Multi-provider | Switch freely between models | 📋 Planned |
+| Bring your own key | Use your own API key per provider | 📋 Planned |
+| Web Store release | Chrome Web Store submission | 📋 Planned |
+| Firefox | Cross-browser support | 📋 Planned |
+| V2 apps | Windows, macOS, Linux, Android, iOS | 📋 Planned |
+
+See [ROADMAP.md](ROADMAP.md) for the detailed plan behind the next three
+milestones, including the open architectural decisions.
+
+The **extension** will remain free forever. Any future paid features would
+live in the separate desktop and mobile apps, never here.
 
 ---
 
-## Self-Hosting the Relay
+## Self-hosting
 
-Power users and privacy maximalists can run their own relay. This means your translation text never touches our servers at all.
+Running your own relay means your text never touches anyone else's server —
+the strongest privacy position available short of a fully local model. The
+[relay README](relay/README.md) covers Docker, environment variables and
+deployment notes.
 
-```bash
-# Coming soon — Docker instructions will be added here
-```
+Once a hosted relay exists, the extension's gear menu will let you switch
+between it and your own instance at any time.
 
 ---
 
 ## Contributing
 
-We welcome contributions of all kinds. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md)
+before opening a pull request.
 
-Areas where help is especially welcome:
-- Firefox extension compatibility
-- RTL rendering (for future Arabic support)
-- Language quality testing (native speakers)
-- Documentation and translations of the docs themselves
+Especially valuable right now:
+
+- Firefox compatibility (Manifest V3 differences)
+- Translation quality review by native speakers, particularly CJKV pairs
+- Additional model provider adapters
+- RTL rendering groundwork for future Arabic support
+- Documentation, and translations of the documentation itself
 
 ---
 
 ## License
 
-Phantaslate is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+Licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
 
-This means:
-- ✅ You can use, study, and modify the code freely
-- ✅ You can self-host your own relay
-- ✅ You can fork and build on this project
-- ❌ You cannot take this code, modify it, and run it as a closed proprietary service without releasing your changes
+- ✅ Use, study and modify the code freely
+- ✅ Run your own relay
+- ✅ Fork and build on it
+- ❌ You may not run a modified version as a closed proprietary service
+  without releasing your changes
 
-See [LICENSE](LICENSE) for the full text.
+The AGPL is a deliberate choice: a privacy tool that could be forked into a
+closed, logging service would undermine its own premise. See
+[LICENSE](LICENSE) for the full text.
 
 ---
 
 ## Mission
 
-> *Phantaslate exists because translation should never come at the cost of trust.*
+> *Phantaslate exists because translation should never come at the cost of
+> trust.*
 >
-> *We build an open, auditable, lightweight tool focused on the languages people actually use — including the CJKV pairs that big platforms route awkwardly through English.*
+> *We build an open, auditable, lightweight tool focused on the languages
+> people actually use — including the CJKV pairs that big platforms route
+> awkwardly through English.*
 >
 > *We keep no logs. We publish what we do. We let you verify it.*
 >
-> *Translation should serve you, not study you.*
+> *Stateless by design. Private by architecture.*
 
 ---
 
 <p align="center">
+  <img src="assets/phantaslate-icon.png" alt="" width="44"><br>
+  <strong>Present when needed. Gone without a trace.</strong><br><br>
   <a href="https://phantaslate.com">phantaslate.com</a>
 </p>
