@@ -19,8 +19,11 @@ const LANGUAGES = [
 ];
 
 const MAX_CHARS = 5000;
-const DEFAULT_RELAY = "http://localhost:8000";
-const REQUEST_TIMEOUT_MS = 30000;
+const DEFAULT_RELAY = "https://api.phantaslate.com";
+const REQUEST_TIMEOUT_MS = 40000;   // sits just past the relay's own 30s upstream timeout,
+                                    // so the relay's error message wins the race, not a client abort
+const HEALTH_TIMEOUT_MS = 10000;    // warm instance — a slow /health means something is actually wrong
+const SLOW_NOTICE_MS = 8000;        // long inputs legitimately take a while; say so rather than hang
 const DEFAULTS = {
   source: "auto",          // every session starts at Auto-detect …
   target: "en",            // … translating into English
@@ -182,11 +185,10 @@ function clearDetected() {
 async function checkHealth() {
   const base = normalizeUrl(el.relayUrl.value);
   setStatus("Checking…", "busy");
+  const ctrl = new AbortController();
+  const timer = setTimeout(function () { ctrl.abort(); }, HEALTH_TIMEOUT_MS);
   try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(function () { ctrl.abort(); }, 5000);
     const res = await fetch(base + "/health", { signal: ctrl.signal });
-    clearTimeout(timer);
     if (!res.ok) throw new Error("bad status");
     const data = await res.json();
     setStatus("Ready", "ok");
@@ -196,6 +198,8 @@ async function checkHealth() {
     setStatus("Offline", "error");
     setModel("");
     return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -232,6 +236,7 @@ async function onTranslate() {
   inFlight = new AbortController();
   const ctrl = inFlight;
   const timer = setTimeout(function () { ctrl.abort(); }, REQUEST_TIMEOUT_MS);
+  const notice = setTimeout(function () { setStatus("Still translating…", "busy"); }, SLOW_NOTICE_MS);
   setBusy(true);
 
   try {
@@ -241,16 +246,17 @@ async function onTranslate() {
     setStatus("Translated · nothing stored", "ok");
   } catch (err) {
     if (err.name === "AbortError") {
-      showError("Request timed out. Is the relay still running?");
+      showError("That took too long. Try again in a moment.");
     } else if (err instanceof TypeError) {
       // fetch() network-level failure — relay not reachable at all
-      showError("Could not reach the relay at " + normalizeUrl(el.relayUrl.value) + ". Is it running?");
+      showError("Could not reach the relay. Check your connection and try again.");
     } else {
       showError(err.message);
     }
     setStatus("Error", "error");
   } finally {
     clearTimeout(timer);
+    clearTimeout(notice);
     inFlight = null;
     setBusy(false);
   }
