@@ -107,8 +107,12 @@ function loadPrefs() {
 function savePrefs() {
   try {
     const remember = !!el.rememberLangs.checked;
+    const normalized = normalizeUrl(el.relayUrl.value);
+    el.relayUrl.value = normalized; // reflect the resolved fallback back into the field —
+                                     // otherwise a blank/whitespace entry silently resolves
+                                     // to DEFAULT_RELAY behind the scenes with no visible trace
     chrome.storage.local.set({
-      relayUrl: normalizeUrl(el.relayUrl.value),
+      relayUrl: normalized,
       clearOnClose: !!el.clearOnClose.checked,
       rememberLangs: remember
     });
