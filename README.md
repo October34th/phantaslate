@@ -10,8 +10,8 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-0D2045" alt="License AGPL-3.0">
-  <img src="https://img.shields.io/badge/version-0.5.2-03B4A5" alt="Version 0.5.2">
-  <img src="https://img.shields.io/badge/status-in%20development-C98A12" alt="Status: in development">
+  <img src="https://img.shields.io/badge/version-1.0.0-03B4A5" alt="Version 1.0.0">
+  <img src="https://img.shields.io/badge/status-pre--release-C98A12" alt="Status: pre-release">
   <img src="https://img.shields.io/badge/manifest-V3-0D2045" alt="Manifest V3">
   <img src="https://img.shields.io/badge/free-forever-03B4A5" alt="Free forever">
 </p>
@@ -23,15 +23,26 @@ yours — we keep no logs, we publish everything we do, and we let you verify it
 
 The extension is **free forever**. No paid tier, no upsell.
 
+<p align="center">
+  <img src="assets/screenshot-translate.png" alt="Phantaslate's in-page translation panel" width="720">
+</p>
+
 ---
 
 ## ⚠️ Current status
 
-**In active development. Not yet published to the Chrome Web Store.**
+**v1.0.0 — hosted relay live. Chrome Web Store submission deferred until
+multi-provider support ships.**
 
-The extension works end to end today, but it requires you to run the relay
-yourself (see [Running it locally](#-running-it-locally)). A hosted relay so
-that anyone can install and go is the next milestone.
+The extension works out of the box against the hosted relay at
+`api.phantaslate.com` — no local setup required. Self-hosting remains fully
+supported for anyone who wants their text to touch nothing but their own
+server (see [Self-hosting](#self-hosting)).
+
+The Web Store listing is drafted and the store assets are prepared, but
+submission is deliberately on hold: shipping model choice before the first
+public release means users aren't locked to a single provider on day one, and
+it avoids putting a second review cycle immediately behind the first.
 
 | Component | State |
 |---|---|
@@ -40,11 +51,16 @@ that anyone can install and go is the next milestone.
 | End-to-end translation | ✅ Working |
 | Draggable in-page panel | ✅ Working |
 | Auto-detect + wrong-source-language warning | ✅ Working |
-| Hosted relay (no setup required) | 🚧 Next |
-| Multiple model providers | 📋 Planned |
+| Hosted relay (no setup required) | ✅ Live at `api.phantaslate.com` |
+| Multiple model providers | 🚧 In progress |
+| Chrome Web Store listing | ⏸️ Drafted — held pending multi-provider |
 | Bring your own API key | 📋 Planned |
 | Firefox support | 📋 Planned |
 | Desktop & mobile apps | 📋 Planned |
+
+Until the Web Store listing is live, install via
+[Running it locally](#-running-it-locally) — step 2 alone is enough now that
+the relay is hosted.
 
 ---
 
@@ -53,7 +69,7 @@ that anyone can install and go is the next milestone.
 | Problem | Phantaslate's answer |
 |---|---|
 | Mainstream translation is tied to advertising and profiling businesses | Stateless relay — nothing is written to disk |
-| Some services are unreliable or unavailable in certain regions | Self-hostable relay; provider choice planned |
+| Some services are unreliable or unavailable in certain regions | Self-hostable relay; provider choice in progress |
 | Translation tools have leaked user text through insecure convenience features | No stored artifacts to leak — there is nothing to expose |
 | CJKV translation often pivots awkwardly through English | Models chosen for direct CJKV quality — no English pivot |
 
@@ -81,6 +97,10 @@ that anyone can install and go is the next milestone.
 - 🏠 **Self-hostable** — run the whole relay yourself; your text never touches
   anyone else's server
 - 🆓 **Free forever** — the extension has no paid tier
+
+<p align="center">
+  <img src="assets/screenshot-cjkv.png" alt="Direct CJKV translation without pivoting through English" width="720">
+</p>
 
 ---
 
@@ -118,7 +138,7 @@ Phantaslate relay          open source · stateless · self-hostable
     │                      no database · no content logging
     ▼
 Model API                  DeepSeek (deepseek-v4-flash) today
-    │                      provider choice + your own key planned
+    │                      second provider in progress · your own key planned
     ▼
 Translation returned  →  rendered locally  →  nothing kept
 ```
@@ -128,13 +148,18 @@ returns the result, and writes nothing to disk. The container even runs with
 access logging disabled, so request paths stay out of the logs too. If the
 server were compromised, there would be nothing stored to take.
 
+The hosted relay runs the same code in this repository, deployed in a
+container. Nothing about the hosted deployment differs from what you can run
+yourself — that's the point of publishing it.
+
 ---
 
 ## 🚀 Running it locally
 
-Two parts: start the relay, then load the extension.
+Since v1.0.0 the extension ships pointed at the hosted relay, so **step 2 is
+all you need** to try it. Step 1 is for self-hosting or relay development.
 
-### 1. The relay
+### 1. The relay *(optional — only for self-hosting)*
 
 Requires Python 3.10+ and a [DeepSeek API key](https://platform.deepseek.com).
 
@@ -171,6 +196,8 @@ docker build -t phantaslate-relay .
 docker run -p 8000:8000 -e DEEPSEEK_API_KEY="sk-..." phantaslate-relay
 ```
 
+Then point the extension at `http://localhost:8000` via the gear icon.
+
 ### 2. The extension
 
 1. Open `chrome://extensions`
@@ -204,6 +231,13 @@ Relay environment variables:
 | `PHANTASLATE_MODEL` | no | `deepseek-v4-flash` | Model name |
 | `DEEPSEEK_BASE_URL` | no | `https://api.deepseek.com` | API base URL |
 | `PHANTASLATE_ORIGINS` | no | `*` | Allowed CORS origins |
+
+`PHANTASLATE_ORIGINS` defaults to `*` for local development convenience. Any
+public deployment should set it to the specific extension origin(s) it serves,
+comma-separated — e.g. `chrome-extension://<your-extension-id>`.
+
+Multi-provider support will add per-provider key and base-URL variables; this
+table will grow when that lands.
 
 ---
 
@@ -241,10 +275,10 @@ Returns status and active model. Reveals no request content.
 | Extension shell | Manifest V3 popup and panel UI | ✅ Done |
 | Stateless relay | FastAPI, self-hostable, Dockerised | ✅ Done |
 | End-to-end translation | Extension ↔ relay integration | ✅ Done |
-| Hosted relay | Deployed default so no setup is needed | 🚧 Next |
-| Multi-provider | Switch freely between models | 📋 Planned |
+| Hosted relay | Deployed default so no setup is needed | ✅ Done |
+| Multi-provider | Switch freely between models | 🚧 In progress |
+| Web Store release | Chrome Web Store submission | ⏸️ Held pending multi-provider |
 | Bring your own key | Use your own API key per provider | 📋 Planned |
-| Web Store release | Chrome Web Store submission | 📋 Planned |
 | Firefox | Cross-browser support | 📋 Planned |
 | V2 apps | Windows, macOS, Linux, Android, iOS | 📋 Planned |
 
@@ -253,6 +287,10 @@ milestones, including the open architectural decisions.
 
 The **extension** will remain free forever. Any future paid features would
 live in the separate desktop and mobile apps, never here.
+
+<p align="center">
+  <img src="assets/screenshot-free-forever.png" alt="Free forever, no account required" width="720">
+</p>
 
 ---
 
@@ -263,8 +301,8 @@ the strongest privacy position available short of a fully local model. The
 [relay README](relay/README.md) covers Docker, environment variables and
 deployment notes.
 
-Once a hosted relay exists, the extension's gear menu will let you switch
-between it and your own instance at any time.
+The extension's gear menu lets you switch between the hosted relay and your
+own instance at any time. Nothing about that choice is locked in.
 
 ---
 
