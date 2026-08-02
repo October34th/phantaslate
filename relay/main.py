@@ -15,15 +15,22 @@ Configuration (environment variables):
   DEEPSEEK_BASE_URL   optional — API base (default: https://api.deepseek.com)
   PHANTASLATE_ORIGINS optional — comma-separated allowed CORS origins
                                  (default: "*" for local dev)
+
+Rate limiting (see ratelimit.py):
+  PHANTASLATE_SALT_SECRET    set in production — otherwise quotas reset on
+                             every deploy
+  PHANTASLATE_DAILY_CHARS    optional — per-install daily cap (default 20000)
+  PHANTASLATE_IP_MULTIPLIER  optional — network ceiling multiple (default 5)
 """
 
 import os
 import re
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from ratelimit import limiter, client_ip
 
 # --- Configuration -----------------------------------------------------------
 
@@ -60,7 +67,12 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ORIGINS,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    # X-Phantaslate-Install must be listed, or the browser's preflight rejects
+    # the request before it ever reaches the handler.
+    allow_headers=["Content-Type", "X-Phantaslate-Install"],
+    # Without expose_headers the extension can send requests fine but cannot
+    # *read* the quota headers off the response.
+    expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
 )
 
 
@@ -237,11 +249,43 @@ def health():
 
 
 @app.post("/translate", response_model=TranslateResponse)
-async def translate(req: TranslateRequest):
+async def translate(req: TranslateRequest, request: Request, response: Response):
+    # Cheap validation first. These failures cost nothing upstream, so there is
+    # no reason to spend the caller's daily quota on them.
     if not API_KEY:
         raise HTTPException(status_code=500, detail="Relay is not configured: missing API key.")
     if req.target_lang == "auto":
         raise HTTPException(status_code=400, detail="target_lang cannot be 'auto'.")
+
+    # --- Rate limit ----------------------------------------------------------
+    # Checked before the upstream call so rejected traffic costs nothing.
+    verdict = limiter.check_and_consume(
+        client_ip(request),
+        request.headers.get("x-phantaslate-install"),
+        len(req.text),
+    )
+
+    quota_headers = {
+        "X-RateLimit-Limit": str(verdict.limit),
+        "X-RateLimit-Remaining": str(verdict.remaining),
+        "X-RateLimit-Reset": str(verdict.reset_at),
+    }
+    # Set on the success path. HTTPException discards this Response object, so
+    # the 429 below carries the same headers explicitly.
+    response.headers.update(quota_headers)
+
+    if not verdict.allowed:
+        if verdict.scope == "network":
+            detail = (
+                "This network has reached today's shared limit. "
+                "It resets at midnight UTC."
+            )
+        else:
+            detail = (
+                "You've reached today's translation limit. "
+                "It resets at midnight UTC."
+            )
+        raise HTTPException(status_code=429, detail=detail, headers=quota_headers)
 
     payload = {
         "model": MODEL,

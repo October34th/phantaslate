@@ -16,6 +16,15 @@ chrome.runtime.onInstalled.addListener((details) => {
   }
 });
 
+
+chrome.runtime.onInstalled.addListener(async () => {
+  const existing = await chrome.storage.local.get("installToken");
+  if (!existing.installToken) {
+    await chrome.storage.local.set({ installToken: crypto.randomUUID() });
+  }
+});
+
+
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab || !tab.id || (tab.url && RESTRICTED.test(tab.url))) {
     return openStandaloneWindow();

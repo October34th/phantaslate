@@ -211,7 +211,10 @@ async function callRelay(text, source, target, signal) {
   const base = normalizeUrl(el.relayUrl.value);
   const res = await fetch(base + "/translate", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Phantaslate-Install": await getInstallToken()
+    },
     body: JSON.stringify({ text: text, source_lang: source, target_lang: target }),
     signal: signal
   });
@@ -226,6 +229,27 @@ async function callRelay(text, source, target, signal) {
   }
   return res.json(); // -> { translation: "..." }
 }
+
+
+/* ---------- helper ---------- */
+let _installToken = null;
+
+async function getInstallToken() {
+  if (_installToken) return _installToken;
+  try {
+    const saved = await chrome.storage.local.get("installToken");
+    if (saved.installToken) {
+      _installToken = saved.installToken;
+    } else {
+      _installToken = crypto.randomUUID();
+      await chrome.storage.local.set({ installToken: _installToken });
+    }
+  } catch {
+    _installToken = "";  // storage unavailable — relay falls back to IP bucket
+  }
+  return _installToken;
+}
+
 
 /* ---------- Translate ---------- */
 async function onTranslate() {
