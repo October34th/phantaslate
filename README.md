@@ -31,18 +31,13 @@ The extension is **free forever**. No paid tier, no upsell.
 
 ## ⚠️ Current status
 
-**v1.0.0 — hosted relay live. Chrome Web Store submission deferred until
-multi-provider support ships.**
+**v1.0.0 — hosted relay live. Chrome Web Store listing and phantaslate.com
+both in progress.**
 
 The extension works out of the box against the hosted relay at
 `api.phantaslate.com` — no local setup required. Self-hosting remains fully
 supported for anyone who wants their text to touch nothing but their own
 server (see [Self-hosting](#self-hosting)).
-
-The Web Store listing is drafted and the store assets are prepared, but
-submission is deliberately on hold: shipping model choice before the first
-public release means users aren't locked to a single provider on day one, and
-it avoids putting a second review cycle immediately behind the first.
 
 | Component | State |
 |---|---|
@@ -52,8 +47,9 @@ it avoids putting a second review cycle immediately behind the first.
 | Draggable in-page panel | ✅ Working |
 | Auto-detect + wrong-source-language warning | ✅ Working |
 | Hosted relay (no setup required) | ✅ Live at `api.phantaslate.com` |
+| Chrome Web Store listing | 🚧 In progress |
+| phantaslate.com homepage | 🚧 In progress |
 | Multiple model providers | 🚧 In progress |
-| Chrome Web Store listing | ⏸️ Drafted — held pending multi-provider |
 | Bring your own API key | 📋 Planned |
 | Firefox support | 📋 Planned |
 | Desktop & mobile apps | 📋 Planned |
@@ -276,8 +272,9 @@ Returns status and active model. Reveals no request content.
 | Stateless relay | FastAPI, self-hostable, Dockerised | ✅ Done |
 | End-to-end translation | Extension ↔ relay integration | ✅ Done |
 | Hosted relay | Deployed default so no setup is needed | ✅ Done |
+| Web Store release | Chrome Web Store submission | 🚧 In progress |
+| phantaslate.com | Project homepage and docs | 🚧 In progress |
 | Multi-provider | Switch freely between models | 🚧 In progress |
-| Web Store release | Chrome Web Store submission | ⏸️ Held pending multi-provider |
 | Bring your own key | Use your own API key per provider | 📋 Planned |
 | Firefox | Cross-browser support | 📋 Planned |
 | V2 apps | Windows, macOS, Linux, Android, iOS | 📋 Planned |
