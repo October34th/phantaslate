@@ -352,5 +352,5 @@ closed, logging service would undermine its own premise. See
 <p align="center">
   <img src="assets/phantaslate-icon.png" alt="" width="44"><br>
   <strong>Present when needed. Gone without a trace.</strong><br><br>
-  <a href="https://phantaslate.com">phantaslate.com</a>
+  <a href="https://www.phantaslate.com">phantaslate.com</a>
 </p>
