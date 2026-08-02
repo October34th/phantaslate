@@ -23,6 +23,7 @@
   const MARGIN = 16;
 
   let host = null, shadow = null, panel = null, frame = null, grip = null;
+  let buildPromise = null;  // in-flight buildPanel(), so it only ever runs once
   let dragging = false, dragDX = 0, dragDY = 0;
   let resizing = false, resStartX = 0, resStartY = 0, resStartW = 0, resStartH = 0;
   let manualSize = false;   // once the user resizes, stop auto-fitting height
@@ -166,6 +167,7 @@
     // Cross-origin iframes are denied the async Clipboard API unless the
     // embedder delegates it explicitly. Without this, Copy silently fails.
     frame.setAttribute("allow", "clipboard-write");
+    frame.addEventListener("load", () => { frame.dataset.loaded = "1"; });
     frame.src = chrome.runtime.getURL("popup/popup.html");
 
     grip = document.createElement("button");
@@ -276,11 +278,28 @@
 
   /* ---------- Open / close ---------- */
   function post(type) {
-    try { frame.contentWindow.postMessage({ source: "phantaslate", type }, "*"); } catch { /* ignore */ }
+    if (!frame) return;
+    const send = () => {
+      try { frame.contentWindow.postMessage({ source: "phantaslate", type }, "*"); } catch { /* ignore */ }
+    };
+    // On a first open the iframe may not have finished loading, and a message
+    // posted before then is simply dropped. Wait for load in that case.
+    if (frame.dataset.loaded === "1") send();
+    else frame.addEventListener("load", send, { once: true });
   }
 
   async function openPanel() {
-    if (!host) await buildPanel();
+    // buildPanel() awaits storage before it assigns `host`, so two clicks
+    // arriving in quick succession could both see host === null and each build
+    // a panel. Sharing one promise makes the second caller wait for the first
+    // build rather than starting its own. This matters more now that the script
+    // is injected on click instead of sitting in the page already.
+    if (!host) {
+      if (!buildPromise) {
+        buildPromise = buildPanel().finally(() => { buildPromise = null; });
+      }
+      await buildPromise;
+    }
     host.style.display = "";
     post("focus");
   }
@@ -292,7 +311,7 @@
     host.style.display = "none";
   }
 
-  function isOpen() { return !!host && host.style.display !== "none"; }
+  function isOpen() { return !!host && !!panel && host.style.display !== "none"; }
 
   async function togglePanel() {
     if (isOpen()) closePanel();

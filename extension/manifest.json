@@ -19,7 +19,7 @@
     "service_worker": "background/service-worker.js"
   },
   "action": {
-    "default_title": "Phantaslate \u2014 Translate Without a Trail",
+    "default_title": "Phantaslate — Translate Without a Trail",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",
@@ -27,18 +27,6 @@
       "128": "icons/icon-128.png"
     }
   },
-  "content_scripts": [
-    {
-      "matches": [
-        "<all_urls>"
-      ],
-      "js": [
-        "content/content.js"
-      ],
-      "run_at": "document_idle",
-      "all_frames": false
-    }
-  ],
   "web_accessible_resources": [
     {
       "resources": [
