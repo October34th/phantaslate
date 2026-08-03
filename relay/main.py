@@ -26,15 +26,18 @@ Configuration (environment variables):
 Rate limiting (see ratelimit.py):
   PHANTASLATE_SALT_SECRET    set in production — otherwise quotas reset on
                              every deploy
-  PHANTASLATE_DAILY_CHARS      optional — per-install daily cap (default 20000)
-  PHANTASLATE_WEB_DAILY_CHARS  optional — per-website-session cap (default 5000)
+  PHANTASLATE_DAILY_CHARS      optional — per-install daily cap (default 30000)
+  PHANTASLATE_WEB_DAILY_CHARS  optional — per-session daily cap (default 30000)
   PHANTASLATE_WEB_MAX_CHARS    optional — per-request cap on the website
-                               (default 1000; the extension keeps 5000)
-  PHANTASLATE_IP_MULTIPLIER    optional — network ceiling multiple (default 5)
+                               (default 5000, same as the extension)
+  PHANTASLATE_IP_MULTIPLIER    optional — network ceiling multiple (default 25)
+  PHANTASLATE_DAILY_BUDGET_USD optional — global daily spend ceiling (default 2.00)
+  PHANTASLATE_COST_PER_MCHARS  optional — assumed cost per million chars (default 0.12)
 """
 
 import os
 import re
+import time
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -61,10 +64,13 @@ WEB_ORIGINS = {
     if o.strip()
 }
 
-# Per-request ceilings. The extension handles longer passages; the website is
-# a try-before-you-install surface and is capped lower.
+# Per-request ceiling. Equal on both surfaces as of business plan v4.0: phone
+# and tablet users have no extension available, so for them the website is the
+# product rather than a preview of it, and a tighter cap would penalise them
+# for a gap in our platform coverage. The variable is retained so the two can
+# diverge again if there is ever a reason — there currently isn't.
 MAX_CHARS = 5000
-WEB_MAX_CHARS = int(os.environ.get("PHANTASLATE_WEB_MAX_CHARS", "1000"))
+WEB_MAX_CHARS = int(os.environ.get("PHANTASLATE_WEB_MAX_CHARS", "5000"))
 
 REQUEST_TIMEOUT = 30.0
 
@@ -331,15 +337,43 @@ async def translate(req: TranslateRequest, request: Request, response: Response)
     response.headers.update(quota_headers)
 
     if not verdict.allowed:
+        # Two of these are not the caller's fault, and shouldn't be reported as
+        # though they were. 503 also tells well-behaved clients to retry rather
+        # than conclude they are done for the day.
+        if verdict.scope == "budget":
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Phantaslate has reached its shared daily limit for today. "
+                    "Translation resumes at midnight UTC."
+                ),
+                headers={**quota_headers, "Retry-After": str(max(1, verdict.reset_at - int(time.time())))},
+            )
+
+        if verdict.scope == "capacity":
+            raise HTTPException(
+                status_code=503,
+                detail="Phantaslate is unusually busy right now. Please try again shortly.",
+                headers={**quota_headers, "Retry-After": "60"},
+            )
+
         if verdict.scope == "network":
             detail = "This network has reached today's shared limit. It resets at midnight UTC."
         else:
             detail = "You've reached today's translation limit. It resets at midnight UTC."
 
-        if is_web:
-            # A website visitor who hits the cap has a genuinely better
-            # option available, so say so rather than just refusing.
-            detail += " The browser extension has its own, larger allowance — free, no account."
+        # Under budget pressure the cap is lower than the advertised baseline.
+        # Saying so is the difference between a user thinking the limit moved
+        # and a user thinking the product is broken.
+        if verdict.compression in ("moderate", "severe"):
+            detail += (
+                f" Today's limit is temporarily reduced to {verdict.limit:,} characters"
+                " because demand is unusually high."
+            )
+
+        # NOTE: this message previously pointed website users to the extension
+        # for "a larger allowance". Under v4.0's equal caps that is no longer
+        # true, so it has been removed rather than left to quietly mislead.
 
         raise HTTPException(status_code=429, detail=detail, headers=quota_headers)
 
