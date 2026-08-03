@@ -12,11 +12,21 @@ Design constraints this satisfies:
   * Nothing is written to disk. Counters live in memory and vanish on restart.
   * No CAPTCHAs, no accounts, no per-person history.
 
+Two callers share this limiter, with different caps:
+
+  extension   install token, 20,000 chars/day (PHANTASLATE_DAILY_CHARS)
+  website     session token, 5,000 chars/day (PHANTASLATE_WEB_DAILY_CHARS)
+
+Their buckets are namespaced separately, so one visitor using both does not
+have the two allowances charged against each other, and a website visitor
+cannot consume an extension user's quota from the same address.
+
 Two identifiers, checked together:
 
-  install token   the extension's own anonymous ID. Carries the user-facing
-                  cap (default 20,000 chars/day). Trivially reset by
-                  reinstalling — that's fine, it's not the abuse defence.
+  caller token    the extension's install ID, or the website's session ID.
+                  Carries the user-facing cap. Trivially reset by
+                  reinstalling or clearing storage — that's fine, it's not
+                  the abuse defence.
   hashed IP       carries a higher ceiling (default 5x). This is what actually
                   catches someone cycling install tokens in a loop. The
                   multiplier exists because IPs are shared: offices,
@@ -50,9 +60,18 @@ WINDOW_SECONDS = 86_400  # one day
 _SECRET = os.environ.get("PHANTASLATE_SALT_SECRET") or secrets.token_hex(32)
 
 
-def _config() -> tuple:
-    """Read caps at call time so they can be changed without a code edit."""
-    daily = int(os.environ.get("PHANTASLATE_DAILY_CHARS", "20000"))
+def _config(profile: str = "extension") -> tuple:
+    """Read caps at call time so they can be changed without a code edit.
+
+    The website gets a smaller allowance than the extension deliberately.
+    Its job is to prove the product works and send people to the extension;
+    if the two were equally generous, installing would stop being the
+    obvious next step.
+    """
+    if profile == "web":
+        daily = int(os.environ.get("PHANTASLATE_WEB_DAILY_CHARS", "5000"))
+    else:
+        daily = int(os.environ.get("PHANTASLATE_DAILY_CHARS", "20000"))
     multiplier = int(os.environ.get("PHANTASLATE_IP_MULTIPLIER", "5"))
     max_tracked = int(os.environ.get("PHANTASLATE_MAX_TRACKED", "200000"))
     return daily, multiplier, max_tracked
@@ -131,26 +150,32 @@ class RateLimiter:
         ip: str,
         install_token: Optional[str],
         chars: int,
+        profile: str = "extension",
     ) -> Verdict:
         """
         Decide whether a request of `chars` characters may proceed, and if so
         charge it against both identities. Call this BEFORE the upstream model
         request — the whole point is to not spend money on rejected traffic.
+
+        `profile` selects the cap and namespaces the buckets: "extension" or
+        "web". Namespacing matters — without it a website visitor and an
+        extension user behind the same address would share one IP counter,
+        and whichever arrived second would be throttled by the other's usage.
         """
         now = time.time()
         day = _day_index(now)
         reset_at = (day + 1) * WINDOW_SECONDS
-        daily, multiplier, max_tracked = _config()
+        daily, multiplier, max_tracked = _config(profile)
 
         self._sweep(day, now)
 
         ip_cap = daily * multiplier
-        ip_key = _identity(ip, "ip", day)
+        ip_key = _identity(ip, f"ip:{profile}", day)
 
         # A missing token is treated as its own bucket keyed by IP, so a
-        # caller can't dodge the install cap simply by omitting the header.
+        # caller can't dodge the per-caller cap simply by omitting the header.
         token_raw = install_token or f"anon:{ip}"
-        token_key = _identity(token_raw, "install", day)
+        token_key = _identity(token_raw, f"token:{profile}", day)
 
         ip_used = self._used(ip_key, day)
         token_used = self._used(token_key, day)

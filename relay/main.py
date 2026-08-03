@@ -6,21 +6,31 @@ translation, and stores nothing. There is no database and no logging of request
 content — by design. What you read here is what runs.
 
   Extension  ->  Relay  ->  LLM API  ->  translation  ->  Extension renders
+  Website    ->  Relay  ->  LLM API  ->  translation  ->  Website renders
                    |
                    +-- stores nothing
+
+Two clients, one relay. They are told apart by the Origin header and given
+different caps (see PROFILES below). Nothing else about their handling
+differs — same statelessness, same provider, same no-logging promise.
 
 Configuration (environment variables):
   DEEPSEEK_API_KEY    required — your DeepSeek API key
   PHANTASLATE_MODEL   optional — model name (default: deepseek-v4-flash)
   DEEPSEEK_BASE_URL   optional — API base (default: https://api.deepseek.com)
-  PHANTASLATE_ORIGINS optional — comma-separated allowed CORS origins
-                                 (default: "*" for local dev)
+  PHANTASLATE_ORIGINS optional — comma-separated allowed EXTENSION origins
+                                 (chrome-extension://... ids)
+  PHANTASLATE_WEB_ORIGINS optional — comma-separated allowed WEBSITE origins
+                                 (default: https://phantaslate.com and www)
 
 Rate limiting (see ratelimit.py):
   PHANTASLATE_SALT_SECRET    set in production — otherwise quotas reset on
                              every deploy
-  PHANTASLATE_DAILY_CHARS    optional — per-install daily cap (default 20000)
-  PHANTASLATE_IP_MULTIPLIER  optional — network ceiling multiple (default 5)
+  PHANTASLATE_DAILY_CHARS      optional — per-install daily cap (default 20000)
+  PHANTASLATE_WEB_DAILY_CHARS  optional — per-website-session cap (default 5000)
+  PHANTASLATE_WEB_MAX_CHARS    optional — per-request cap on the website
+                               (default 1000; the extension keeps 5000)
+  PHANTASLATE_IP_MULTIPLIER    optional — network ceiling multiple (default 5)
 """
 
 import os
@@ -39,7 +49,23 @@ BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstri
 MODEL = os.environ.get("PHANTASLATE_MODEL", "deepseek-v4-flash")
 ORIGINS = [o.strip() for o in os.environ.get("PHANTASLATE_ORIGINS", "*").split(",") if o.strip()]
 
+# The website's own origins. Kept separate from PHANTASLATE_ORIGINS so that
+# adding the site cannot accidentally widen what counts as the extension —
+# the two get different caps, and the distinction is drawn from this list.
+WEB_ORIGINS = {
+    o.strip()
+    for o in os.environ.get(
+        "PHANTASLATE_WEB_ORIGINS",
+        "https://phantaslate.com,https://www.phantaslate.com",
+    ).split(",")
+    if o.strip()
+}
+
+# Per-request ceilings. The extension handles longer passages; the website is
+# a try-before-you-install surface and is capped lower.
 MAX_CHARS = 5000
+WEB_MAX_CHARS = int(os.environ.get("PHANTASLATE_WEB_MAX_CHARS", "1000"))
+
 REQUEST_TIMEOUT = 30.0
 
 # Language codes the extension sends -> names the model understands.
@@ -65,11 +91,15 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ORIGINS,
+    # Both clients must appear here or the browser blocks them before any of
+    # this code runs. A missing website origin shows up as a generic network
+    # failure in the browser, not as an error from this relay.
+    allow_origins=(ORIGINS if ORIGINS == ["*"] else ORIGINS + sorted(WEB_ORIGINS)),
     allow_methods=["GET", "POST", "OPTIONS"],
-    # X-Phantaslate-Install must be listed, or the browser's preflight rejects
-    # the request before it ever reaches the handler.
-    allow_headers=["Content-Type", "X-Phantaslate-Install"],
+    # Both custom headers must be listed, or the browser's preflight rejects
+    # the request before it ever reaches the handler. X-Phantaslate-Install
+    # is the extension's; X-Phantaslate-Session is the website's.
+    allow_headers=["Content-Type", "X-Phantaslate-Install", "X-Phantaslate-Session"],
     # Without expose_headers the extension can send requests fine but cannot
     # *read* the quota headers off the response.
     expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
@@ -77,6 +107,8 @@ app.add_middleware(
 
 
 class TranslateRequest(BaseModel):
+    # Validated against the larger of the two ceilings here; the website's
+    # tighter limit is applied in the handler, once the caller is known.
     text: str = Field(..., min_length=1, max_length=MAX_CHARS)
     source_lang: str = "auto"
     target_lang: str = "en"
@@ -257,12 +289,36 @@ async def translate(req: TranslateRequest, request: Request, response: Response)
     if req.target_lang == "auto":
         raise HTTPException(status_code=400, detail="target_lang cannot be 'auto'.")
 
+    # --- Which caller is this? -----------------------------------------------
+    # The website and the extension share this relay but get different caps.
+    # Origin is set by the browser and cannot be forged by page JavaScript;
+    # a non-browser caller can send anything, which is why the IP ceiling in
+    # ratelimit.py — not this check — is the actual abuse defence.
+    origin = (request.headers.get("origin") or "").rstrip("/")
+    is_web = origin in WEB_ORIGINS
+
+    if is_web:
+        profile = "web"
+        caller_token = request.headers.get("x-phantaslate-session")
+        if len(req.text) > WEB_MAX_CHARS:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"Text is over the {WEB_MAX_CHARS:,}-character limit for the "
+                    f"website. The extension handles {MAX_CHARS:,} per translation."
+                ),
+            )
+    else:
+        profile = "extension"
+        caller_token = request.headers.get("x-phantaslate-install")
+
     # --- Rate limit ----------------------------------------------------------
     # Checked before the upstream call so rejected traffic costs nothing.
     verdict = limiter.check_and_consume(
         client_ip(request),
-        request.headers.get("x-phantaslate-install"),
+        caller_token,
         len(req.text),
+        profile=profile,
     )
 
     quota_headers = {
@@ -276,15 +332,15 @@ async def translate(req: TranslateRequest, request: Request, response: Response)
 
     if not verdict.allowed:
         if verdict.scope == "network":
-            detail = (
-                "This network has reached today's shared limit. "
-                "It resets at midnight UTC."
-            )
+            detail = "This network has reached today's shared limit. It resets at midnight UTC."
         else:
-            detail = (
-                "You've reached today's translation limit. "
-                "It resets at midnight UTC."
-            )
+            detail = "You've reached today's translation limit. It resets at midnight UTC."
+
+        if is_web:
+            # A website visitor who hits the cap has a genuinely better
+            # option available, so say so rather than just refusing.
+            detail += " The browser extension has its own, larger allowance — free, no account."
+
         raise HTTPException(status_code=429, detail=detail, headers=quota_headers)
 
     payload = {
