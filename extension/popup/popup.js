@@ -155,6 +155,20 @@ function setStatus(text, state) {
   el.statusDot.className = "status__dot status__dot--" + state; // idle | ok | busy | error
 }
 
+/* Show remaining quota only once it starts to matter.
+
+   The relay reports it on every response, but announcing "29,847 left" after
+   a one-line translation turns a private tool into a metered one for no
+   benefit. Below a quarter remaining the number is genuinely useful — it is
+   also the honest alternative to the soft throttle the business plan
+   originally called for: tell people the number instead of quietly slowing
+   them down. */
+function quotaSuffix(quota) {
+  if (!quota) return "";
+  if (quota.remaining > quota.limit * 0.25) return "";
+  return " · " + quota.remaining.toLocaleString() + " left today";
+}
+
 /* Model name is shown separately so it survives status changes. */
 function setModel(name) {
   if (!el.statusModel) return;
@@ -219,15 +233,40 @@ async function callRelay(text, source, target, signal) {
     signal: signal
   });
 
+  // The relay reports remaining quota on every response, including refusals.
+  // Reading it here rather than only on success is deliberate: the number
+  // matters most at the moment someone is told they can't translate.
+  const quota = readQuota(res);
+
   if (!res.ok) {
     let detail = "";
     try {
       const err = await res.json();
       detail = err.detail || "";
     } catch { /* non-JSON error body */ }
-    throw new Error(detail || ("Relay returned " + res.status + "."));
+    const error = new Error(detail || ("Relay returned " + res.status + "."));
+    error.status = res.status;
+    // 503 means the service is busy or its shared daily budget is spent —
+    // not this user's fault, and retrying later may work. 429 means this
+    // caller is genuinely out until the window resets. Same-looking failure,
+    // opposite advice, so the distinction is carried through.
+    error.retryable = res.status === 503;
+    error.quota = quota;
+    throw error;
   }
-  return res.json(); // -> { translation: "..." }
+
+  const data = await res.json();
+  return { data: data, quota: quota };
+}
+
+/* Parse the X-RateLimit-* headers. Returns null when they're absent, which
+ * is the case for a self-hosted relay running an older build — the UI simply
+ * shows nothing rather than inventing a number. */
+function readQuota(res) {
+  const remaining = parseInt(res.headers.get("X-RateLimit-Remaining"), 10);
+  const limit = parseInt(res.headers.get("X-RateLimit-Limit"), 10);
+  if (!Number.isFinite(remaining) || !Number.isFinite(limit) || limit <= 0) return null;
+  return { remaining: remaining, limit: limit };
 }
 
 
@@ -268,10 +307,11 @@ async function onTranslate() {
   setBusy(true);
 
   try {
-    const data = await callRelay(text, el.source.value, el.target.value, ctrl.signal);
+    const result = await callRelay(text, el.source.value, el.target.value, ctrl.signal);
+    const data = result.data;
     showResult((data && data.translation) || "");
     handleDetection(data);
-    setStatus("Translated · nothing stored", "ok");
+    setStatus("Translated · nothing stored" + quotaSuffix(result.quota), "ok");
   } catch (err) {
     if (err.name === "AbortError") {
       showError("That took too long. Try again in a moment.");
@@ -281,7 +321,10 @@ async function onTranslate() {
     } else {
       showError(err.message);
     }
-    setStatus("Error", "error");
+    // A busy service isn't an error the user caused, and "Error" invites them
+    // to go looking for a fault on their side that isn't there.
+    setStatus(err.retryable ? "Busy · try again shortly" : "Error",
+              err.retryable ? "busy" : "error");
   } finally {
     clearTimeout(timer);
     clearTimeout(notice);
