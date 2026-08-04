@@ -10,8 +10,8 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-0D2045" alt="License AGPL-3.0">
-  <img src="https://img.shields.io/badge/version-1.0.0-03B4A5" alt="Version 1.0.0">
-  <img src="https://img.shields.io/badge/status-pre--release-C98A12" alt="Status: pre-release">
+  <img src="https://img.shields.io/badge/version-1.1.0-03B4A5" alt="Version 1.1.0">
+  <img src="https://img.shields.io/badge/status-live-03B4A5" alt="Status: live">
   <img src="https://img.shields.io/badge/manifest-V3-0D2045" alt="Manifest V3">
   <img src="https://img.shields.io/badge/free-forever-03B4A5" alt="Free forever">
 </p>
@@ -31,13 +31,13 @@ The extension is **free forever**. No paid tier, no upsell.
 
 ## ⚠️ Current status
 
-**v1.0.0 — hosted relay live. Chrome Web Store listing and phantaslate.com
-both in progress.**
+**v1.1.0 — live on the Chrome Web Store, hosted relay live, phantaslate.com live.**
 
-The extension works out of the box against the hosted relay at
-`api.phantaslate.com` — no local setup required. Self-hosting remains fully
-supported for anyone who wants their text to touch nothing but their own
-server (see [Self-hosting](#self-hosting)).
+Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/phantaslate-translate-wit/nmekbfmjegpjkpkobippkkbnnlhimijm) —
+no local setup, no self-hosting required. The extension ships pointed at the
+hosted relay at `api.phantaslate.com`. Self-hosting remains fully supported
+for anyone who wants their text to touch nothing but their own server (see
+[Self-hosting](#self-hosting)).
 
 | Component | State |
 |---|---|
@@ -47,16 +47,16 @@ server (see [Self-hosting](#self-hosting)).
 | Draggable in-page panel | ✅ Working |
 | Auto-detect + wrong-source-language warning | ✅ Working |
 | Hosted relay (no setup required) | ✅ Live at `api.phantaslate.com` |
-| Chrome Web Store listing | 🚧 In progress |
-| phantaslate.com homepage | 🚧 In progress |
+| Chrome Web Store listing | ✅ Live |
+| phantaslate.com homepage | ✅ Live |
+| Anonymous rate limiting (fair-use caps, global budget breaker) | ✅ Live |
 | Multiple model providers | 🚧 In progress |
 | Bring your own API key | 📋 Planned |
 | Firefox support | 📋 Planned |
 | Desktop & mobile apps | 📋 Planned |
 
-Until the Web Store listing is live, install via
-[Running it locally](#-running-it-locally) — step 2 alone is enough now that
-the relay is hosted.
+Prefer building from source, or want to point the extension at your own
+relay? See [Running it locally](#-running-it-locally) below.
 
 ---
 
@@ -116,8 +116,9 @@ Auto-detect, plus nine target languages:
 | `fr` | 🇫🇷 French |
 | `de` | 🇩🇪 German |
 
-Up to 5,000 characters per translation. Russian and Arabic (with RTL
-rendering) are candidates for a later release.
+Up to 5,000 characters per translation, 30,000 characters per day — the same
+limits whether you're using the extension or phantaslate.com. Russian and
+Arabic (with RTL rendering) are candidates for a later release.
 
 ---
 
@@ -226,7 +227,8 @@ Relay environment variables:
 | `DEEPSEEK_API_KEY` | yes | — | API key (never commit it) |
 | `PHANTASLATE_MODEL` | no | `deepseek-v4-flash` | Model name |
 | `DEEPSEEK_BASE_URL` | no | `https://api.deepseek.com` | API base URL |
-| `PHANTASLATE_ORIGINS` | no | `*` | Allowed CORS origins |
+| `PHANTASLATE_ORIGINS` | no | `*` | Allowed extension CORS origins (`chrome-extension://...`) |
+| `PHANTASLATE_WEB_ORIGINS` | no | `https://phantaslate.com,https://www.phantaslate.com` | Allowed website CORS origins |
 
 `PHANTASLATE_ORIGINS` defaults to `*` for local development convenience. Any
 public deployment should set it to the specific extension origin(s) it serves,
@@ -234,6 +236,38 @@ comma-separated — e.g. `chrome-extension://<your-extension-id>`.
 
 Multi-provider support will add per-provider key and base-URL variables; this
 table will grow when that lands.
+
+### Rate limiting
+
+Fair-use limits are enforced anonymously — no accounts, no cookies, no
+durable identity — by [`relay/ratelimit.py`](relay/ratelimit.py). Full design
+notes live in the module's own docstring; the short version:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PHANTASLATE_SALT_SECRET` | random at boot | Secret for identity hashing. **Set this in production** — unset, quotas reset on every deploy. |
+| `PHANTASLATE_DAILY_CHARS` | `30000` | Per-install daily cap, extension |
+| `PHANTASLATE_WEB_DAILY_CHARS` | `30000` | Per-session daily cap, website |
+| `PHANTASLATE_WEB_MAX_CHARS` | `5000` | Per-request cap, website (matches the extension) |
+| `PHANTASLATE_IP_MULTIPLIER` | `25` | Per-network ceiling, as a multiple of the daily cap — loose on purpose, so it takes many addresses to matter, not one shared office |
+| `PHANTASLATE_DAILY_BUDGET_USD` | `2.00` | Global daily spend ceiling — the actual cost control. Caps run generous per-user precisely because this bounds the bill directly. |
+| `PHANTASLATE_COST_PER_MCHARS` | `0.12` | Assumed provider cost per million characters, used to convert the budget above into a character count |
+| `PHANTASLATE_MAX_TRACKED` | `500000` | Max distinct identities held in memory (~80 MB at default) |
+| `PHANTASLATE_FAIL_OPEN` | unset (refuse) | At memory capacity: refuse new identities (default) or admit them uncounted (`1`) |
+
+Two identifiers are checked per request — a caller token (install ID or
+session ID) and a hashed, salted IP — plus the global budget above them. All
+three are checked before anything is charged, so a rejected request never
+costs quota or money. No raw IP address is ever stored: addresses are
+normalised (IPv6 to its `/64`), hashed with the day and the secret, and the
+resulting key cannot be correlated across days or reversed to the original
+address.
+
+The extension and the website share one cap structure as of business plan
+v4.0 — see [`Phantaslate_Business_Plan_v4.md`](Phantaslate_Business_Plan_v4.md)
+for the reasoning, largely: a per-user cap bounds nothing on its own, since it
+doesn't know how many users exist; the global budget is what actually bounds
+the bill, which is what lets the per-user figures be generous.
 
 ---
 
@@ -272,8 +306,8 @@ Returns status and active model. Reveals no request content.
 | Stateless relay | FastAPI, self-hostable, Dockerised | ✅ Done |
 | End-to-end translation | Extension ↔ relay integration | ✅ Done |
 | Hosted relay | Deployed default so no setup is needed | ✅ Done |
-| Web Store release | Chrome Web Store submission | 🚧 In progress |
-| phantaslate.com | Project homepage and docs | 🚧 In progress |
+| Web Store release | Chrome Web Store submission | ✅ Done |
+| phantaslate.com | Project homepage and docs | ✅ Done |
 | Multi-provider | Switch freely between models | 🚧 In progress |
 | Bring your own key | Use your own API key per provider | 📋 Planned |
 | Firefox | Cross-browser support | 📋 Planned |
