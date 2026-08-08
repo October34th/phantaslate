@@ -79,10 +79,15 @@ REQUEST_TIMEOUT = 30.0
 # Hard ceiling on how much the model may write back. A translation is bounded in
 # length by its input; an injected instruction ("write me an essay") is not. This
 # does not stop injection — the prompt does that — but it bounds what a
-# successful one can cost and how much unrelated text it can produce. The
-# per-request figure is derived from the input length below; this is the cap on
-# that derivation.
-MAX_OUTPUT_TOKENS = int(os.environ.get("PHANTASLATE_MAX_OUTPUT_TOKENS", "4096"))
+# successful one can cost and how much unrelated text it can produce.
+#
+# Raised from 4096 after a regression: the first version of this cap was sized
+# against the *visible* translation alone, which ignored that a model may spend
+# tokens deliberating before it emits anything. When the budget ran out during
+# that phase the provider returned an empty completion, and short inputs — the
+# ones with the smallest budgets — failed the most. Sizing anything from output
+# length alone is what went wrong; the figures below carry deliberate slack.
+MAX_OUTPUT_TOKENS = int(os.environ.get("PHANTASLATE_MAX_OUTPUT_TOKENS", "8192"))
 
 # Language codes the extension sends -> names the model understands.
 LANGUAGE_NAMES = {
@@ -310,10 +315,19 @@ def build_system_prompt(source_lang: str, target_lang: str, nonce: str) -> str:
         )
     else:
         source = LANGUAGE_NAMES[source_lang]
+        # This used to read "the user states the source is X, but report the
+        # language it is genuinely written in — if it differs, report the real
+        # one", which framed every request as a dispute to settle. On text that
+        # mixes languages — a Chinese sentence containing a product name, say —
+        # settling it is genuinely hard, and the model spent its whole budget on
+        # the adjudication and returned nothing at all. The detection is still
+        # requested, because the mismatch warning depends on it; what is removed
+        # is the invitation to treat the user's setting as a claim under test.
         task = (
-            f"Translate the fenced text into {target}. The user states its source "
-            f"language is {source}, but report the language it is genuinely "
-            "written in — if that differs, report the real one."
+            f"Translate the fenced text into {target}. The user has set the source "
+            f"language to {source} — treat that as context, not as a claim to "
+            "verify. Also report which language the text is predominantly written "
+            "in, as a simple observation."
         )
 
     return (
@@ -345,7 +359,15 @@ def build_system_prompt(source_lang: str, target_lang: str, nonce: str) -> str:
         "6. Preserve line breaks, numbers and inline formatting. Anything "
         "untranslatable — names, symbols, code — stays as it is. Text already in "
         f"{target} is returned unchanged.\n"
-        "7. Never output the fence markers themselves.\n\n"
+        "7. Text that mixes languages is normal and is not a problem to solve. "
+        f"Translate all of it into {target}. Passages, product names, brand names "
+        f"and proper nouns already in {target} stay as they are. When reporting "
+        "the language, name the one the bulk of the text is in — a handful of "
+        "foreign words or names does not change that answer, and there is no "
+        "need to deliberate over it.\n"
+        "8. Never reply with nothing. Whatever the text is, produce your best "
+        "literal translation of it — an empty reply is never the right output.\n"
+        "9. Never output the fence markers themselves.\n\n"
         "Reply in exactly this format and nothing else:\n"
         "LANG: <the name of the language the fenced text is actually written in, in English>\n"
         f"{DETECT_SEPARATOR}\n"
@@ -378,14 +400,18 @@ def build_user_message(text: str, target_lang: str, nonce: str) -> str:
 def output_token_budget(char_count: int) -> int:
     """Bound the reply length to something a translation could plausibly need.
 
-    Generous on purpose: truncating a legitimate long translation mid-sentence
-    would be a worse bug than the one this guards against. The widest real
-    expansion is a dense script into a verbose one — 5,000 characters of Chinese
-    becomes roughly 7,500 of English, about 1,900 tokens — so twice the input
-    character count plus a floor leaves ample headroom while still refusing to
-    fund an essay generated from a one-line prompt.
+    Deliberately loose. The figure has to cover three things, not one: the
+    translation itself, whatever the model spends thinking before it starts
+    writing, and the LANG envelope. Only the first scales with input length,
+    which is why there is a flat floor underneath the ratio — a short input is
+    exactly the case where a proportional budget leaves nothing for the other
+    two, and short inputs are the common case.
+
+    Truncating a real translation mid-sentence, or starving one into an empty
+    reply, is a worse failure than paying for a few hundred wasted tokens. Erring
+    high is the right side to err on.
     """
-    return min(MAX_OUTPUT_TOKENS, max(512, char_count * 2 + 256))
+    return min(MAX_OUTPUT_TOKENS, max(1024, char_count * 3 + 512))
 
 
 @app.get("/health")
@@ -518,11 +544,45 @@ async def translate(req: TranslateRequest, request: Request, response: Response)
 
     try:
         data = resp.json()
-        raw = data["choices"][0]["message"]["content"].strip()
-    except (ValueError, KeyError, IndexError):
+        choice = data["choices"][0]
+        content = choice["message"]["content"]
+        finish_reason = choice.get("finish_reason")
+    except (ValueError, KeyError, IndexError, TypeError, AttributeError):
         raise HTTPException(status_code=502, detail="Unexpected response from the translation model.")
 
+    # A model that returns nothing is a real outcome, not an impossible one, and
+    # it used to escape this function two different ways: content == "" became a
+    # 200 with a blank translation and a cheerful "Translated" status, while
+    # content == None raised AttributeError on .strip() and surfaced as a 500.
+    # Both told the user something untrue. They are one condition and get one
+    # honest answer.
+    raw = (content or "").strip()
+    if not raw:
+        if finish_reason == "length":
+            # The reply budget ran out before any translation was produced. The
+            # user can act on this — shorter text works — so say so.
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "The translation was cut off before it could be produced. "
+                    "Try again, or split the text into smaller pieces."
+                ),
+            )
+        raise HTTPException(
+            status_code=502,
+            detail="The translation model returned an empty response. Please try again.",
+        )
+
     detected, translation = parse_auto_reply(raw)
+
+    # Belt and braces: the parser can only return an empty translation if the
+    # reply was a bare LANG line, but a blank result must never reach the user
+    # wearing a success status.
+    if not translation.strip():
+        raise HTTPException(
+            status_code=502,
+            detail="The translation model returned an empty response. Please try again.",
+        )
 
     mismatch = False
     detected_code = None
