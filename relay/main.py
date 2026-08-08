@@ -166,6 +166,23 @@ NAME_TO_CODE = {
 # against either Chinese variant.
 AMBIGUOUS_NAMES = {"chinese"}
 
+# Names that identify a spoken variety rather than a script. These resolve to a
+# code — the *usual* pairing, useful for picking a font — but they must never
+# adjudicate a script mismatch, because they carry no information about one.
+#
+# Cantonese is written in both simplified and traditional characters, and so is
+# Mandarin. A model shown code-mixed Hong Kong office chat will often answer
+# "Cantonese", which is a correct observation about the language and no answer
+# at all to the question the mismatch check is actually asking, which is about
+# the script. Treating one as the other produced a confident, wrong warning on
+# perfectly correct simplified input — and in the extension, which auto-switches
+# the source selector on a mismatch, it silently changed the user's setting.
+#
+# Answering a script question properly needs the characters inspected, not the
+# model asked. That is the local detector planned for v1.1.0; until it lands,
+# declining to guess is the honest behaviour.
+SCRIPT_AMBIGUOUS = {"cantonese", "mandarin", "mandarin chinese"}
+
 
 def normalize_name(name: str) -> str:
     """Lowercase and strip punctuation so 'Chinese (Simplified)' matches."""
@@ -189,13 +206,21 @@ def is_mismatch(stated_code: str, detected_name: str) -> tuple[bool, str | None]
     """Decide whether the detected language contradicts the stated source.
 
     Returns (mismatch, detected_code). Errs toward reporting no mismatch: an
-    unrecognized or ambiguous detection must never raise a false alarm.
+    unrecognized, ambiguous, or script-agnostic detection must never raise a
+    false alarm.
     """
     detected_code = code_from_name(detected_name)
     if detected_code is None:
         return False, None
     if stated_code not in LANGUAGE_NAMES:
         return False, detected_code
+
+    # A spoken-variety name cannot contradict a script choice. Keep the user's
+    # own setting as the code so the font hint follows the script they picked
+    # rather than the one this name happens to be paired with.
+    if normalize_name(detected_name) in SCRIPT_AMBIGUOUS:
+        return False, stated_code
+
     return detected_code != stated_code, detected_code
 
 
